@@ -48,11 +48,6 @@ class ElsevierSpider(scrapy.Spider):
         articles = response.css('div.result-item-content')
         a_urls = [a.css('h2>a::attr(href)').extract_first() for a in articles]
         new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
-
-
-        article_urls = response.css('div.result-item-content>h2>a::attr(href)').extract()
-        article_types = response.css('span.article-type::text').extract()
-        new_articles = [(i, j) for (i, j) in zip(article_urls, article_types) if i not in url_whole]
         print('*******************  found {} new articles'.format(len(new_articles)))
 
         if new_articles:
