@@ -2,6 +2,8 @@ import scrapy
 from scrapy.http import Request
 from .. import items as myitems
 # from scrapy.loader import ItemLoader
+import os
+import json
 
 
 class Springerspider(scrapy.Spider):
@@ -11,37 +13,68 @@ class Springerspider(scrapy.Spider):
     def form_query(self):
         myquery = '/search?date-facet-mode=between&showAll=true&facet-content-type=%22Article%22'
 
-        keys_all_words = ['happiness', 'measurement']
-        keys_exact_phrase = []
-        keys_least_words = ['air', 'environment', 'hazards', 'pollution']
-        keys_without_words = []
-        keys_title = []
+        # keys_all_words = ['pollution']
+        # keys_exact_phrase = []
+        # keys_least_words = ['air', 'environment', 'hazards', 'pollution']
+        # keys_without_words = []
+        # keys_title = []
 
-        if keys_title:
-            myquery += '&dc.title={}'.format('+'.join(keys_title))
+        # if keys_title:
+        #     myquery += '&dc.title={}'.format('+'.join(keys_title))
+        # query = []
+        # if keys_all_words:
+        #     query.append('+AND+'.join(keys_all_words))
+        # if keys_exact_phrase:
+        #     query.append('%22{}%22'.format('+'.join(keys_exact_phrase)))
+        # if keys_least_words:
+        #     query.append('%28{}%29'.format('+OR+'.join(keys_least_words)))
+        # if keys_without_words:
+        #     query.append('NOT+%28{}%29'.format('+AND+'.join(keys_without_words)))
+        # if query:
+        #     myquery += '&query={}'.format('+AND+'.join(query))
+        #
+        # return myquery
+
+        query_list = []
+        # 1
+        keys_all_words = ['pollution', 'happiness']
         query = []
         if keys_all_words:
             query.append('+AND+'.join(keys_all_words))
-        if keys_exact_phrase:
-            query.append('%22{}%22'.format('+'.join(keys_exact_phrase)))
-        if keys_least_words:
-            query.append('%28{}%29'.format('+OR+'.join(keys_least_words)))
-        if keys_without_words:
-            query.append('NOT+%28{}%29'.format('+AND+'.join(keys_without_words)))
         if query:
-            myquery += '&query={}'.format('+AND+'.join(query))
+            query_list.append(myquery + '&query={}'.format('+AND+'.join(query)))
 
-        return myquery
+        # 2
+        keys_exact_phrase_list = ['subjective well-being', 'life satisfaction', 'quality of life']
+        for kep in keys_exact_phrase_list:
+            query_list.append(myquery + '&query=pollution+AND+%22{}%22'.format('+'.join(kep.split(' '))))
+
+        return query_list
 
     def start_requests(self):
-        query = self.form_query()
-        start_url = 'https://link.springer.com{}'.format(query)
+        query_list = self.form_query()
+        for query in query_list:
+            start_url = 'https://link.springer.com{}'.format(query)
+            yield Request(start_url, self.parse_search_result_pages)
+        # start_url = 'https://link.springer.com{}'.format(query)
         # print(start_url)
-        yield Request(start_url, self.parse_search_result_pages)
+        # yield Request(start_url, self.parse_search_result_pages)
 
     def parse_search_result_pages(self, response):
-        for article_url in response.css('a.title::attr(href)').extract():
-            yield Request('https://link.springer.com{}'.format(article_url), self.parse_article_page)
+        file_url_whole = 'springer_urls.json'
+        if file_url_whole not in os.listdir(os.getcwd()):
+            url_whole = []
+        else:
+            with open(file_url_whole, 'r') as f:
+                url_whole = json.load(f)
+
+        new_article_urls = [i for i in response.css('a.title::attr(href)').extract() if i not in url_whole]
+        if new_article_urls:
+            with open(file_url_whole, 'w') as f:
+                json.dump(url_whole+new_article_urls, f)
+            for article_url in new_article_urls:
+                yield Request('https://link.springer.com{}'.format(article_url), self.parse_article_page)
+
         next_url = response.css('a.next::attr(href)').extract_first()
         if next_url:
             yield Request('https://link.springer.com{}'.format(next_url), self.parse_search_result_pages)
