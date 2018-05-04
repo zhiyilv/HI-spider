@@ -15,10 +15,9 @@ class ElsevierSpider(scrapy.Spider):
     def form_query(self):
         myquery = "/search/advanced?qs=pollution"
 
-        a = "&tak=subjective%20well-being&show=25&sortBy=relevance"
-
         # keys_all_words = ['pollution']
         # myquery += "qs={}".format('%20'.join(keys_all_words))
+
         query_list = []
         # 1
         keys_tak = ['happiness']
@@ -34,7 +33,7 @@ class ElsevierSpider(scrapy.Spider):
     def start_requests(self):
         query_list = self.form_query()
         for query in query_list:
-            start_url = 'http://{}{}'.format(self.allowed_domains[0], query)
+            start_url = 'https://{}{}'.format(self.allowed_domains[0], query)
             yield Request(start_url, self.parse_search_result_pages)
 
     def parse_search_result_pages(self, response):
@@ -56,13 +55,13 @@ class ElsevierSpider(scrapy.Spider):
                 json.dump(url_whole + new_article_urls, f)
 
             for u, t in new_articles:
-                yield Request(url='http://{}{}'.format(self.allowed_domains[0], u),
+                yield Request(url='https://{}{}'.format(self.allowed_domains[0], u),
                               callback=self.parse_article_page,
                               meta={'type': t})
 
         next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
         if next_url:
-            yield Request(url='http://{}{}'.format(self.allowed_domains[0], next_url),
+            yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
                           callback=self.parse_search_result_pages)
 
     def parse_article_page(self, response):

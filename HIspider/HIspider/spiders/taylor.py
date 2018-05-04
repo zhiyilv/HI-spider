@@ -4,6 +4,8 @@ from .. import items as myitems
 from selenium import webdriver
 import time
 from scrapy.selector import Selector as sl
+import os
+import json
 
 
 class TaylorSpider(scrapy.Spider):
@@ -13,48 +15,47 @@ class TaylorSpider(scrapy.Spider):
     def form_query(self):
         # Allowing search in Keywords, Title, Authors or Anywhere
         # Each allows for AND and OR operator
-        myquery = "/action/doSearch?"
-
-        keys_Keywords = ['happiness', 'subjective']  # anyone of these
-        keys_Anywhere = ['pollution']  # all of these
-
-        field_count = 0
-        if keys_Keywords:
-            field_count += 1
-            myquery += "field{fc}=Keyword&text{fc}={k}".format(fc=field_count, k='+OR+'.join(keys_Keywords))
-        if keys_Anywhere:
-            field_count += 1
-            myquery += "&field{fc}=AllField&text{fc}={k}".format(fc=field_count, k='+'.join(keys_Anywhere))
-
-        return myquery
+        myquery = "/action/doSearch?field1=AllField&text1=pollution&field2=Keyword&text2="
+        keys_Keywords = ['happiness', 'subjective well-being', 'life satisfaction', 'quality of life']
+        return [myquery + '+'.join(i.split(' ')) for i in keys_Keywords]
 
     def start_requests(self):
-        query = self.form_query()
-        start_search_url = "https://{dom}{q}".format(dom=self.allowed_domains[0], q=query)
-        yield Request(url=start_search_url,
-                      callback=self.parse_search_result_pages,
-                      dont_filter=True)
+        query_list = self.form_query()
+        for query in query_list:
+            start_url = "https://{dom}{q}".format(dom=self.allowed_domains[0], q=query)
+            yield Request(url=start_url,
+                          callback=self.parse_search_result_pages,
+                          dont_filter=True)
 
     def parse_search_result_pages(self, response):
+        file_url_whole = '{}_urls.json'.format(self.name)
+        if file_url_whole not in os.listdir(os.getcwd()):
+            url_whole = []
+        else:
+            with open(file_url_whole, 'r') as f:
+                url_whole = json.load(f)
+
         articles = response.css('article.searchResultItem')
-        for a in articles:
-            url = a.css('div.art_title>span.hlFld-Title>a::attr(href)').extract_first()
-            url = "https://{}{}".format(self.allowed_domains[0], url)
-            # a_type = a.css('div.article-type::text').extract_first()
-            # title = ''.join(a.css('div.art_title>span.hlFld-Title>a ::text').extract())
-            # journal = ' '.join(a.css('div.publication-meta a::text').extract())
-            # date = a.css('span.publication-year::text').extract_first()
-            # authors = [i.strip() for i in a.css('div.author span *::text').strip()]
-            paper = myitems.PaperItem()
-            paper['type_article'] = a.css('div.article-type::text').extract_first() or ''
-            paper['title'] = ''.join(a.css('div.art_title>span.hlFld-Title>a ::text').extract()) or ''
-            paper['link'] = url
-            paper['author_list'] = [i.strip() for i in a.css('div.author span *::text').extract()]
-            paper['journal_name'] = ' '.join(a.css('div.publication-meta a::text').extract()) or ''
-            paper['date'] = a.css('span.publication-year::text').extract_first() or ''
-            yield Request(url=url, callback=self.parse_article_page,
-                          meta={'item': paper},
-                          dont_filter=True)
+        a_urls = [a.css('div.art_title>span.hlFld-Title>a::attr(href)').extract_first() for a in articles]
+        new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
+
+        if new_articles:
+            new_article_urls = [i[0] for i in new_articles]
+            with open(file_url_whole, 'w') as f:
+                json.dump(url_whole + new_article_urls, f)
+
+            for url, a in new_articles:
+                url = "https://{}{}".format(self.allowed_domains[0], url)
+                paper = myitems.PaperItem()
+                paper['type_article'] = a.css('div.article-type::text').extract_first() or ''
+                paper['title'] = ''.join(a.css('div.art_title>span.hlFld-Title>a ::text').extract()) or ''
+                paper['link'] = url
+                paper['author_list'] = [i.strip() for i in a.css('div.author span *::text').extract()]
+                paper['journal_name'] = ' '.join(a.css('div.publication-meta a::text').extract()) or ''
+                paper['date'] = a.css('span.publication-year::text').extract_first() or ''
+                yield Request(url=url, callback=self.parse_article_page,
+                              meta={'item': paper},
+                              dont_filter=True)
         next_url = response.css('a.nextPage::attr(href)').extract_first()
         if next_url:
             yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
@@ -74,7 +75,7 @@ class TaylorSpider(scrapy.Spider):
             ref_url = paper['link'].replace('full', 'ref')
         elif 'abs' in paper['link']:
             ref_url = paper['link'].replace('abs', 'ref')
-        yield Request(url=ref_url, callback=self.parse_ref_page, meta={'item': paper}, dont_filter = True)
+        yield Request(url=ref_url, callback=self.parse_ref_page, meta={'item': paper}, dont_filter=True)
 
     def parse_ref_page(self, response):
         paper = response.meta.get('item')
