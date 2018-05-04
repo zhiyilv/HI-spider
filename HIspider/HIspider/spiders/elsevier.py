@@ -35,7 +35,7 @@ class ElsevierSpider(scrapy.Spider):
         for query in query_list:
             start_url = 'https://{}{}'.format(self.allowed_domains[0], query)
             print('-----------------start search {}'.format(query))
-            yield Request(start_url, self.parse_search_result_pages)
+            yield Request(start_url, self.parse_search_result_pages, dont_filter=True)
 
     def parse_search_result_pages(self, response):
         file_url_whole = '{}_urls.json'.format(self.name)
@@ -65,13 +65,14 @@ class ElsevierSpider(scrapy.Spider):
                 paper['journal_name'] = ''.join(a.css('div>ol>li *::text').extract()) or ''
                 yield Request(url=url,
                               callback=self.parse_article_page,
-                              meta={'item': paper})
+                              meta={'item': paper},
+                              dont_filter=True)
 
         next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
         page_count = 1
         if next_url:
             page_count += 1
-            print('^^^^^^^^^^ next page, page_count:{}'.format(page_count))
+            print('^^^^^^^^^^ next page:{}, page_count:{}'.format(next_url, page_count))
             yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
                           callback=self.parse_search_result_pages)
 
