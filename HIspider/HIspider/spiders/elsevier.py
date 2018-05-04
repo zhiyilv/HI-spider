@@ -34,6 +34,7 @@ class ElsevierSpider(scrapy.Spider):
         query_list = self.form_query()
         for query in query_list:
             start_url = 'https://{}{}'.format(self.allowed_domains[0], query)
+            print('-----------------start search {}'.format(query))
             yield Request(start_url, self.parse_search_result_pages)
 
     def parse_search_result_pages(self, response):
@@ -48,6 +49,7 @@ class ElsevierSpider(scrapy.Spider):
         article_types = response.css('span.article-type::text').extract()
 
         new_articles = [(i, j) for (i, j) in zip(article_urls, article_types) if i not in url_whole]
+        print('*******************  found {} new articles'.format(len(new_articles)))
 
         if new_articles:
             new_article_urls = [i[0] for i in new_articles]
@@ -60,7 +62,10 @@ class ElsevierSpider(scrapy.Spider):
                               meta={'type': t})
 
         next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
+        page_count = 1
         if next_url:
+            page_count += 1
+            print('^^^^^^^^^^ next page, page_count:{}'.format(page_count))
             yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
                           callback=self.parse_search_result_pages)
 
@@ -93,9 +98,9 @@ class ElsevierSpider(scrapy.Spider):
         paper['keyword_list'] = response.css('div.Keywords>:first-child div.keyword span::text').extract()
         paper['reference_list'] = response.css('dd.reference strong.title::text').extract()
 
-        print('collected {} with {} references from {}'.format(paper['title'],
-                                                               len(paper['reference_list']),
-                                                               paper['link']))
+        print('collected {} with {} words in abstract from {}'.format(paper['title'],
+                                                                      len(paper['abstract']),
+                                                                      paper['link']))
         yield paper
 
 
