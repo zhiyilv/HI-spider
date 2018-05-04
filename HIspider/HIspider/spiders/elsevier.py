@@ -45,21 +45,32 @@ class ElsevierSpider(scrapy.Spider):
             with open(file_url_whole, 'r') as f:
                 url_whole = json.load(f)
 
+        articles = response.css('div.result-item-content')
+        a_urls = [a.css('h2>a::attr(href)').extract_first() for a in articles]
+        new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
+
+
         article_urls = response.css('div.result-item-content>h2>a::attr(href)').extract()
         article_types = response.css('span.article-type::text').extract()
-
         new_articles = [(i, j) for (i, j) in zip(article_urls, article_types) if i not in url_whole]
         print('*******************  found {} new articles'.format(len(new_articles)))
 
         if new_articles:
-            new_article_urls = [i[0] for i in new_articles]
+            new_article_urls = [na[0] for na in new_articles]
             with open(file_url_whole, 'w') as f:
                 json.dump(url_whole + new_article_urls, f)
 
-            for u, t in new_articles:
-                yield Request(url='https://{}{}'.format(self.allowed_domains[0], u),
+            for url, a in new_articles:
+                paper = myitems.PaperItem()
+                url = "https://{}{}".format(self.allowed_domains[0], url)
+                paper['link'] = url
+                paper['type_article'] = a.css('span.article-type::text').extract_first() or ''
+                paper['title'] = ' '.join([seg.strip() for seg in a.css('h2>a *::text').extract()]) or ''
+                paper['author_list'] = [i.strip() for i in a.css('ol>li>span.author::text').extract()]
+                paper['journal_name'] = ''.join(a.css('div>ol>li *::text').extract()) or ''
+                yield Request(url=url,
                               callback=self.parse_article_page,
-                              meta={'type': t})
+                              meta={'item': paper})
 
         next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
         page_count = 1
@@ -72,11 +83,7 @@ class ElsevierSpider(scrapy.Spider):
     def parse_article_page(self, response):
         # from scrapy.shell import inspect_response
         # inspect_response(response, self)
-        paper = myitems.PaperItem()
-        paper['link'] = response.url
-        paper['type_article'] = response.meta.get('type') or ''
-        paper['title'] = response.css('h1.Head span.title-text::text').extract_first() or ''
-        paper['journal_name'] = response.css('h2.publication-title a.publication-title-link::text').extract_first() or ''
+        paper = response.meta.get('item')
         paper['abstract'] = response.css('div.Abstracts p::text').extract_first() or ''
         paper['doi'] = response.css('a.doi::attr(href)').extract_first() or ''
 
@@ -89,11 +96,6 @@ class ElsevierSpider(scrapy.Spider):
             paper['citation_count'] = int(citation_count.strip())
         else:
             paper['citation_count'] = 0
-
-        paper['author_list'] = []
-        for au in response.css("div.author-group a"):
-            paper['author_list'].append(' '.join([au.css('span.text.given-name::text').extract_first(),
-                                                  au.css('span.text.surname::text').extract_first()]))
 
         paper['keyword_list'] = response.css('div.Keywords>:first-child div.keyword span::text').extract()
         paper['reference_list'] = response.css('dd.reference strong.title::text').extract()

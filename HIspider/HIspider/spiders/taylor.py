@@ -1,9 +1,6 @@
 import scrapy
 from scrapy.http import Request
 from .. import items as myitems
-from selenium import webdriver
-import time
-from scrapy.selector import Selector as sl
 import os
 import json
 
@@ -40,7 +37,7 @@ class TaylorSpider(scrapy.Spider):
         new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
 
         if new_articles:
-            new_article_urls = [i[0] for i in new_articles]
+            new_article_urls = [na[0] for na in new_articles]
             with open(file_url_whole, 'w') as f:
                 json.dump(url_whole + new_article_urls, f)
 
@@ -48,7 +45,7 @@ class TaylorSpider(scrapy.Spider):
                 url = "https://{}{}".format(self.allowed_domains[0], url)
                 paper = myitems.PaperItem()
                 paper['type_article'] = a.css('div.article-type::text').extract_first() or ''
-                paper['title'] = ''.join(a.css('div.art_title>span.hlFld-Title>a ::text').extract()) or ''
+                paper['title'] = ' '.join(a.css('div.art_title>span.hlFld-Title>a ::text').extract()) or ''
                 paper['link'] = url
                 paper['author_list'] = [i.strip() for i in a.css('div.author span *::text').extract()]
                 paper['journal_name'] = ' '.join(a.css('div.publication-meta a::text').extract()) or ''
