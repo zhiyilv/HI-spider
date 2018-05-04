@@ -67,6 +67,7 @@ class TaylorSpider(scrapy.Spider):
             result_count_string = response.css('ul.num-results>li.search-results>strong::text').extract()[1].strip()
             result_count = int(result_count_string.replace(',', ''))
             total_page_count = int(result_count / 50) + 1
+            print('++++++ ++++++++ there are totally {} pages for query {}'.format(total_page_count, query))
 
         if current_page < total_page_count:  # there are more pages of search results
             next_url = 'https://{}{}&startPage={}'.format(self.allowed_domains[0], query, current_page)
