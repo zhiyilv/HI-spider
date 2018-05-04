@@ -1,74 +1,68 @@
 import scrapy
 from scrapy.http import Request
 from .. import items as myitems
-from selenium import webdriver
-import time
-from scrapy.selector import Selector as sl
+# from selenium import webdriver
+# import time
+# from scrapy.selector import Selector as sl
+import json
+import os
 
 
 class ElsevierSpider(scrapy.Spider):
     name = 'elsevier'
     allowed_domains = ['www.sciencedirect.com', 'www-sciencedirect-com.eproxy2.lib.hku.hk']
-    # start_url = "http://eproxy.lib.hku.hk/login?url=http://www.sciencedirect.com/"
-
-    def __init__(self):
-        self.driver = webdriver.Chrome()
-        self.driver.get("http://eproxy.lib.hku.hk/login?url=http://www.sciencedirect.com/")
-        inputs = self.driver.find_elements_by_css_selector('div.form-input>input')
-        inputs[0].send_keys('zhiyilv')
-        inputs[1].send_keys('lzhy09876poiuy')
-        self.driver.find_element_by_css_selector('div.form-buttons>button').click()
-        time.sleep(2)
 
     def form_query(self):
-        myquery = "/search/advanced?"
+        myquery = "/search/advanced?qs=pollution"
 
-        keys_all_words = ['pollution']
+        a = "&tak=subjective%20well-being&show=25&sortBy=relevance"
+
+        # keys_all_words = ['pollution']
+        # myquery += "qs={}".format('%20'.join(keys_all_words))
+        query_list = []
+        # 1
         keys_tak = ['happiness']
+        query_list.append(myquery + "&tak={}&show=100&sortBy=relevance".format('%20'.join(keys_tak)))
 
-        if keys_all_words:
-            myquery += "qs={}".format('%20'.join(keys_all_words))
-        if keys_tak:
-            myquery += "&tak={}".format('%20'.join(keys_tak))
+        # 2
+        keys_tak_list = ['subjective well-being', 'life satisfaction', 'quality of life']
+        for kep in keys_tak_list:
+            query_list.append(myquery + '&tak={}&show=100&sortBy=relevance'.format('%20'.join(kep.split(' '))))
 
-        return myquery + "&show=100&sortBy=relevance"
+        return query_list
 
     def start_requests(self):
-        query = self.form_query()
-        start_search_url = "https://www-sciencedirect-com.eproxy2.lib.hku.hk{}".format(query)
-        yield Request(url=start_search_url,
-                      cookies=self.driver.get_cookies(),
-                      callback=self.parse_search_result_pages)
-    # def parse(self, response):
-    #     return scrapy.FormRequest.from_response(
-    #         response,
-    #         formcss='div.form-content',
-    #         formdata={'text': 'zhiyilv', 'password': 'lzhy09876poiuy'},
-    #         callback=self.after_login
-    #     )
-
-    # def after_login(self, response):
-    #     if "Invalid HKU Portal UID/Library card number or PIN." in response.body:
-    #         self.logger.error("Login failed")
-    #         return
-    #     # query = self.form_query()
-    #     # start_search_url = "https://www-sciencedirect-com.eproxy2.lib.hku.hk{}".format(query)
-    #     # yield Request(start_search_url, self.parse_search_result_pages)
-    #     from scrapy.shell import inspect_response
-    #     inspect_response(response, self)
+        query_list = self.form_query()
+        for query in query_list:
+            start_url = 'http://{}{}'.format(self.allowed_domains[0], query)
+            yield Request(start_url, self.parse_search_result_pages)
 
     def parse_search_result_pages(self, response):
+        file_url_whole = '{}_urls.json'.format(self.name)
+        if file_url_whole not in os.listdir(os.getcwd()):
+            url_whole = []
+        else:
+            with open(file_url_whole, 'r') as f:
+                url_whole = json.load(f)
+
         article_urls = response.css('div.result-item-content>h2>a::attr(href)').extract()
         article_types = response.css('span.article-type::text').extract()
-        for article_url, article_type in zip(article_urls, article_types):
-            yield Request(url='https://www-sciencedirect-com.eproxy2.lib.hku.hk{}'.format(article_url),
-                          cookies=self.driver.get_cookies(),
-                          callback=self.parse_article_page,
-                          meta={'type': article_type})
+
+        new_articles = [(i, j) for (i, j) in zip(article_urls, article_types) if i not in url_whole]
+
+        if new_articles:
+            new_article_urls = [i[0] for i in new_articles]
+            with open(file_url_whole, 'w') as f:
+                json.dump(url_whole + new_article_urls, f)
+
+            for u, t in new_articles:
+                yield Request(url='http://{}{}'.format(self.allowed_domains[0], u),
+                              callback=self.parse_article_page,
+                              meta={'type': t})
+
         next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
         if next_url:
-            yield Request(url='https://www-sciencedirect-com.eproxy2.lib.hku.hk{}'.format(next_url),
-                          cookies=self.driver.get_cookies(),
+            yield Request(url='http://{}{}'.format(self.allowed_domains[0], next_url),
                           callback=self.parse_search_result_pages)
 
     def parse_article_page(self, response):
@@ -77,16 +71,6 @@ class ElsevierSpider(scrapy.Spider):
         paper = myitems.PaperItem()
         paper['link'] = response.url
         paper['type_article'] = response.meta.get('type') or ''
-
-        ref_b = webdriver.Chrome()
-        ref_b.get(response.url)
-        for i in self.driver.get_cookies():
-            ref_b.add_cookie(i)
-        ref_b.get(response.url)
-        time.sleep(0.8)
-
-        response = sl(text=ref_b.page_source)
-
         paper['title'] = response.css('h1.Head span.title-text::text').extract_first() or ''
         paper['journal_name'] = response.css('h2.publication-title a.publication-title-link::text').extract_first() or ''
         paper['abstract'] = response.css('div.Abstracts p::text').extract_first() or ''
@@ -110,7 +94,6 @@ class ElsevierSpider(scrapy.Spider):
         paper['keyword_list'] = response.css('div.Keywords>:first-child div.keyword span::text').extract()
         paper['reference_list'] = response.css('dd.reference strong.title::text').extract()
 
-        ref_b.close()
         print('collected {} with {} references from {}'.format(paper['title'],
                                                                len(paper['reference_list']),
                                                                paper['link']))
