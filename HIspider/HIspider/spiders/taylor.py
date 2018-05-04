@@ -14,15 +14,17 @@ class TaylorSpider(scrapy.Spider):
         # Each allows for AND and OR operator
         myquery = "/action/doSearch?field1=AllField&text1=pollution&field2=Keyword&text2="
         keys_Keywords = ['happiness', 'subjective well-being', 'life satisfaction', 'quality of life']
-        return [myquery + '+'.join(i.split(' ')) for i in keys_Keywords]
+        return [myquery + '+'.join(i.split(' ')) + '&pageSize=50' for i in keys_Keywords]
 
     def start_requests(self):
         query_list = self.form_query()
         for query in query_list:
             start_url = "https://{dom}{q}".format(dom=self.allowed_domains[0], q=query)
+            print('-----------------start search {}'.format(query))
             yield Request(url=start_url,
                           callback=self.parse_search_result_pages,
-                          dont_filter=True)
+                          dont_filter=True,
+                          meta={'q': query, 'p': 1, 't': -1})  # p:current page number, t:total page number
 
     def parse_search_result_pages(self, response):
         file_url_whole = '{}_urls.json'.format(self.name)
@@ -35,6 +37,12 @@ class TaylorSpider(scrapy.Spider):
         articles = response.css('article.searchResultItem')
         a_urls = [a.css('div.art_title>span.hlFld-Title>a::attr(href)').extract_first() for a in articles]
         new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
+
+        current_page = response.meta.get('p')
+        query = response.meta.get('q')
+        print('*******************  found {} new articles in page {} of query {}'.format(len(new_articles),
+                                                                                         current_page,
+                                                                                         query))
 
         if new_articles:
             new_article_urls = [na[0] for na in new_articles]
@@ -53,10 +61,18 @@ class TaylorSpider(scrapy.Spider):
                 yield Request(url=url, callback=self.parse_article_page,
                               meta={'item': paper},
                               dont_filter=True)
-        next_url = response.css('a.nextPage::attr(href)').extract_first()
-        if next_url:
-            yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
+
+        total_page_count = response.meta.get('t')
+        if total_page_count == -1:
+            result_count_string = response.css('ul.num-results>li.search-results>strong::text').extract()[1].strip()
+            result_count = int(result_count_string.replace(',', ''))
+            total_page_count = int(result_count / 50) + 1
+
+        if current_page < total_page_count:  # there are more pages of search results
+            next_url = 'https://{}{}&startPage={}'.format(self.allowed_domains[0], query, current_page)
+            yield Request(url=next_url,
                           callback=self.parse_search_result_pages,
+                          meta={'q': query, 'p': current_page+1, 't': total_page_count},
                           dont_filter=True)
 
     def parse_article_page(self, response):

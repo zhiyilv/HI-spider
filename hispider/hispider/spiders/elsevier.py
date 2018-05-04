@@ -39,8 +39,6 @@ class ElsevierSpider(scrapy.Spider):
                           callback=self.parse_search_result_pages,
                           meta={'q': query, 'p': 1, 't': -1})  # p:current page number, t:total page number
 
-
-
     def parse_search_result_pages(self, response):
         file_url_whole = '{}_urls.json'.format(self.name)
         if file_url_whole not in os.listdir(os.getcwd()):
