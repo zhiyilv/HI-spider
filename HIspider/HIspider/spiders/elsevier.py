@@ -35,7 +35,9 @@ class ElsevierSpider(scrapy.Spider):
         for query in query_list:
             start_url = 'https://{}{}'.format(self.allowed_domains[0], query)
             print('-----------------start search {}'.format(query))
-            yield Request(start_url, self.parse_search_result_pages)
+            yield Request(url=start_url,
+                          callback=self.parse_search_result_pages,
+                          meta={'q': query, 'p': 1, 't': -1})  # p:current page number, t:total page number
 
     def parse_search_result_pages(self, response):
         file_url_whole = '{}_urls.json'.format(self.name)
@@ -48,7 +50,12 @@ class ElsevierSpider(scrapy.Spider):
         articles = response.css('div.result-item-content')
         a_urls = [a.css('h2>a::attr(href)').extract_first() for a in articles]
         new_articles = [(i, j) for (i, j) in zip(a_urls, articles) if i not in url_whole]
-        print('*******************  found {} new articles'.format(len(new_articles)))
+
+        current_page = response.meta.get('p')
+        query = response.meta.get('q')
+        print('*******************  found {} new articles in page {} of query {}'.format(len(new_articles),
+                                                                                         current_page,
+                                                                                         query))
 
         if new_articles:
             new_article_urls = [na[0] for na in new_articles]
@@ -67,13 +74,24 @@ class ElsevierSpider(scrapy.Spider):
                               callback=self.parse_article_page,
                               meta={'item': paper})
 
-        next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
-        page_count = 1
-        if next_url:
-            page_count += 1
-            print('^^^^^^^^^^ next page, page_count:{}'.format(page_count))
-            yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
-                          callback=self.parse_search_result_pages)
+        total_page_count = response.meta.get('t')
+        if total_page_count == -1:
+            result_count_string = response.css('h1>span.search-body-results-text::text').extract_first().strip()
+            result_count = int(result_count_string.replace(',', ''))
+            total_page_count = int(result_count/100) + 1
+
+        if current_page < total_page_count:  # there are more pages of search results
+            next_url = 'https://{}{}&offset={}'.format(self.allowed_domains[0], query, 100*current_page)
+            yield Request(url=next_url,
+                          callback=self.parse_search_result_pages,
+                          meta={'q': query, 'p': current_page+1, 't': total_page_count})
+        # next_url = response.css('li.pagination-link.next-link a::attr(href)').extract_first()
+        # page_count = 1
+        # if next_url:
+        #     page_count += 1
+        #     print('^^^^^^^^^^ next page, page_count:{}'.format(page_count))
+        #     yield Request(url='https://{}{}'.format(self.allowed_domains[0], next_url),
+        #                   callback=self.parse_search_result_pages)
 
     def parse_article_page(self, response):
         # from scrapy.shell import inspect_response
